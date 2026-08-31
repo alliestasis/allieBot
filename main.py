@@ -1,17 +1,20 @@
+import json
 import os
 
 import discord
+import requests
 from discord import client
-
 from discord.ext import commands
 
 from dotenv import load_dotenv
 import ollama
+
 import getresponses as gr
 import getprompt as gp
 import global_var as gvar
 
 from gtts import gTTS
+
 
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
@@ -69,7 +72,7 @@ async def on_message(message):
     if message.author == client.user: # don't do anything if the author of the message is allieBot herself
         return
     if message.content.startswith("allieBot"): # only engage if a message starts with her name
-        if message.author.id == ALLIE_ID:
+        if message.author.id == int(ALLIE_ID):
             print("talking to allie")
             system_prompt = gp.defmd #get prompt according to user id
         else:
@@ -87,7 +90,9 @@ async def on_message(message):
                                            # or "rules", ranging from 0.0-2.5; the higher it is, the more responses
                                            # may deviate from said prompt
         )
-        store_messages(str(message.guild.id), str(message.channel.id), findresponse.message.content, "assistant", str(client.user.id))
+        store_messages(str(message.guild.id), str(message.channel.id),
+        findresponse.message.content, "assistant", str(client.user.id))
+
         botresponse = findresponse['message']['content']
         for i in range (0, len(botresponse), 2000): # gotta be under 2000 characters because this is discord
             await message.channel.send(botresponse[i:i+2000])
@@ -108,7 +113,7 @@ async def talk(interaction: discord.Interaction, message: str): # pass in a stri
     channel = client.get_channel(interaction.channel_id)
     guild = str(client.get_guild(interaction.guild_id)) if interaction.guild_id else "0"
 
-    if interaction.user.id == ALLIE_ID:
+    if interaction.user.id == int(ALLIE_ID):
         print("talking to allie")
         system_prompt = gp.defmd
     else:
@@ -124,7 +129,9 @@ async def talk(interaction: discord.Interaction, message: str): # pass in a stri
         ] + get_messages(str(interaction.guild_id), str(interaction.channel_id)),
         options = {'temperature': 0.4}
     )
-    store_messages(str(interaction.guild_id), str(interaction.channel_id), findresponse.message.content, "assistant", str(client.user.id))
+    store_messages(str(interaction.guild_id), str(interaction.channel_id),
+    findresponse.message.content, "assistant", str(client.user.id))
+
     botresponse = findresponse['message']['content']
     for i in range(0, len(botresponse), 2000):
         if firstResponse:
@@ -148,5 +155,56 @@ async def cake(interaction: discord.Interaction):
 @discord.app_commands.allowed_installs(guilds=True, users=True)
 async def skyfall(interaction: discord.Interaction):
     await interaction.response.send_message(gr.skyfall) # review found on the steam page of a chicken little game
+
+class WeatherAPIError(Exception):
+    # Raised when WeatherAPI returns an error response.
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(f"WeatherAPI error {code}: {message}")
+
+@client.tree.command(name="weather", description = "weather today")
+@discord.app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+@discord.app_commands.allowed_installs(guilds=True, users=True)
+async def weather(interaction: discord.Interaction, location: str, aqi: bool = True) -> dict: # pass in desired location
+    parameters = {
+        "key": os.getenv("WEATHER_API_TOKEN"),
+        "q": location,
+        "aqi": "yes" if aqi else "no", # always going to be yes because i said so
+    }
+
+    result = requests.get(f"https://api.weatherapi.com/v1/current.json", params=parameters)
+
+    if not result.ok: # uh oh!
+        error = result.json()["error"]
+        raise WeatherAPIError(error["code"], error["message"])
+
+    response = result.json()
+    print(response)
+
+    await interaction.response.defer()
+    channel = client.get_channel(interaction.channel_id)
+    guild = str(client.get_guild(interaction.guild_id)) if interaction.guild_id else "0"
+
+    system_prompt = f"{json.dumps(response)}, please summarize this information" # convert response into json-formatted
+                                                                                 # string
+    store_messages(str(interaction.guild_id), str(interaction.channel_id), location, "user", str(interaction.user.id))
+    findresponse = ollama.chat(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(response)},
+        ], options = {'temperature': 0.4}
+    )
+    store_messages(str(interaction.guild_id), str(interaction.channel_id),
+    findresponse.message.content, "assistant", str(client.user.id))
+
+    botresponse = findresponse.message.content
+    for i in range(0, len(botresponse), 2000):
+        await interaction.followup.send(botresponse[i:i + 2000])
+
+    await client.process_commands(response)
+    await interaction.channel.send(botresponse[i:i + 2000])
+
 
 client.run(TOKEN)
