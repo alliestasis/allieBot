@@ -12,6 +12,7 @@ import ollama
 import getresponses as gr
 import getprompt as gp
 import global_var as gvar
+import yfinance as yf
 
 from gtts import gTTS
 
@@ -186,8 +187,8 @@ async def weather(interaction: discord.Interaction, location: str, aqi: bool = T
     channel = client.get_channel(interaction.channel_id)
     guild = str(client.get_guild(interaction.guild_id)) if interaction.guild_id else "0"
 
-    system_prompt = f"{json.dumps(response)}, please summarize this information" # convert response into json-formatted
-                                                                                 # string
+    system_prompt = (f"{json.dumps(response)}, please summarize this information") # convert response into json-formatted
+                                                                         # string
     store_messages(str(interaction.guild_id), str(interaction.channel_id), location, "user", str(interaction.user.id))
     findresponse = ollama.chat(
         model=model,
@@ -206,5 +207,16 @@ async def weather(interaction: discord.Interaction, location: str, aqi: bool = T
     await client.process_commands(response)
     await interaction.channel.send(botresponse[i:i + 2000])
 
+@client.tree.command(name = "stocks", description = "not to be confused with socks")
+@discord.app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+@discord.app_commands.allowed_installs(guilds=True, users=True)
+async def stocks(interaction: discord.Interaction, stock: str):
+    valid_stocks = ['AAPL', 'MSFT', 'GOOG', 'TSLA', 'BTC-USD', 'AMD', 'NFLX']
+    if stock in valid_stocks:
+        ticker = yf.Ticker(stock)
+        history = ticker.history(period="1d", interval="1h")
+        await interaction.response.send_message(stock + str(history))
+    if stock not in valid_stocks:
+        await interaction.response.send_message("invalid input")
 
 client.run(TOKEN)
