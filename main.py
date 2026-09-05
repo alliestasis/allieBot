@@ -2,6 +2,7 @@ import json
 import os
 
 import discord
+import numpy as np
 import requests
 from discord import client
 from discord.ext import commands
@@ -13,6 +14,7 @@ import getresponses as gr
 import getprompt as gp
 import global_var as gvar
 import yfinance as yf
+import matplotlib.pyplot as plt
 
 from gtts import gTTS
 
@@ -30,10 +32,12 @@ users = {}
 context_limit = 25 # how many messages allieBot may remember at a given time
 model = "llama3.2" # ..............the model allieBot is running
 
+
 @client.event
 async def on_ready():
     print(f"{client.user.name} is online!")
-    await client.change_presence(activity=discord.Game(name="i am the perfect machine"), status=discord.Status.dnd)
+    await client.change_presence(activity=discord.Game(name="so....... the weather....."),
+                                 status=discord.Status.dnd)
     await client.tree.sync() # type: ignore
 
 def store_messages(server, channel, message, role, id):
@@ -194,7 +198,7 @@ async def weather(interaction: discord.Interaction, location: str, aqi: bool = T
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(response)},
+            {"role": "user", "content": location}, # json.dumps(response) originally
         ], options = {'temperature': 0.4}
     )
     store_messages(str(interaction.guild_id), str(interaction.channel_id),
@@ -211,12 +215,22 @@ async def weather(interaction: discord.Interaction, location: str, aqi: bool = T
 @discord.app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 @discord.app_commands.allowed_installs(guilds=True, users=True)
 async def stocks(interaction: discord.Interaction, stock: str):
-    valid_stocks = ['AAPL', 'MSFT', 'GOOG', 'TSLA', 'BTC-USD', 'AMD', 'NFLX']
-    if stock in valid_stocks:
-        ticker = yf.Ticker(stock)
-        history = ticker.history(period="1d", interval="1h")
-        await interaction.response.send_message(stock + str(history))
-    if stock not in valid_stocks:
+    input_stocks = stock
+    ticker = yf.Ticker(stock)
+    values = ticker.history(period="1d", interval="1h")
+
+    if values.empty:
         await interaction.response.send_message("invalid input")
+
+    else:
+        time = np.linspace(6.30, 13, 7)
+        fig, ax = plt.subplots()
+        ax.plot(time, values['Close'])
+        ax.set(xlabel="Time (h)", ylabel="Price", title="Stock Price History: " + stock)
+        ax.grid()
+
+        fig.savefig("plot.png")
+        file=discord.File("plot.png")
+        await interaction.response.send_message(file=file)
 
 client.run(TOKEN)
